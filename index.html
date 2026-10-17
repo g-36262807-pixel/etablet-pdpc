@@ -1,0 +1,1627 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Pengurusan & Laporan Penggunaan Tablet PdPc</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Google Fonts Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0284c7',
+                            600: '#0369a1',
+                            700: '#075985',
+                            800: '#0c4a6e',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+            color: #1e293b;
+        }
+
+        /* Print formatting for One Page Report */
+        @media print {
+            body {
+                background: white !important;
+                color: black !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            .no-print, header, nav, #toast-message, .modal {
+                display: none !important;
+            }
+            .tab-content {
+                display: none !important;
+            }
+            #tab-report {
+                display: block !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            #print-area {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 10mm 15mm !important;
+                border: none !important;
+                box-shadow: none !important;
+            }
+            @page {
+                size: A4 portrait;
+                margin: 0;
+            }
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased bg-slate-50">
+
+    <!-- Firebase SDK Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, setDoc, deleteDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase Configuration setup
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'tablet-pdpc-app';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "demo-key",
+            authDomain: "demo-app.firebaseapp.com",
+            projectId: "demo-app",
+            storageBucket: "demo-app.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:demo"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        
+        // Initialize Firestore with local persistent cache to prevent exponential backoff console warnings in demo/offline modes
+        let db;
+        try {
+            db = initializeFirestore(app, {
+                localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+            });
+        } catch (e) {
+            db = getFirestore(app);
+        }
+
+        // Firestore Collections references
+        const LOGS_COLLECTION_PATH = ['artifacts', appId, 'public', 'data', 'pdpc_logs'];
+        const TABLETS_COLLECTION_PATH = ['artifacts', appId, 'public', 'data', 'tablets_inventory'];
+
+        window.db = db;
+        window.auth = auth;
+        window.LOGS_COLLECTION_PATH = LOGS_COLLECTION_PATH;
+        window.TABLETS_COLLECTION_PATH = TABLETS_COLLECTION_PATH;
+        window.doc = doc;
+        window.setDoc = setDoc;
+        window.deleteDoc = deleteDoc;
+        window.onSnapshot = onSnapshot;
+        window.collection = collection;
+
+        // Authenticate User First
+        async function initAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (e) {
+                console.warn("Auth initialization note:", e.message);
+            }
+        }
+
+        initAuth().then(() => {
+            if (typeof window.startRealtimeListeners === 'function') {
+                window.startRealtimeListeners();
+            }
+        });
+    </script>
+
+    <!-- Top Navigation Bar -->
+    <header class="bg-slate-900 text-white sticky top-0 z-30 shadow-md no-print">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <!-- Brand / Logo -->
+                <div class="flex items-center space-x-3">
+                    <div class="p-2 bg-brand-500 rounded-lg text-white font-bold">
+                        <i class="fa-solid fa-tablet-screen-button text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg font-bold tracking-tight leading-none text-white">e-Tablet PdPc</h1>
+                        <p class="text-xs text-slate-400 mt-0.5">Sistem Peningkatan Literasi Digital Murid SMK Tinusa, Sandakan</p>
+                    </div>
+                </div>
+
+                <!-- Main Navigation Tabs -->
+                <nav class="hidden md:flex space-x-1" id="desktop-nav">
+                    <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-brand-600 text-white">
+                        <i class="fa-solid fa-chart-pie mr-2"></i>Papan Pemuka
+                    </button>
+                    <button onclick="switchTab('logs')" id="nav-logs" class="nav-btn px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
+                        <i class="fa-solid fa-list-check mr-2"></i>Log Penggunaan
+                    </button>
+                    <button onclick="switchTab('inventory')" id="nav-inventory" class="nav-btn px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
+                        <i class="fa-solid fa-boxes-stacked mr-2"></i>Inventori Tablet
+                    </button>
+                    <button onclick="switchTab('report')" id="nav-report" class="nav-btn px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
+                        <i class="fa-solid fa-file-contract mr-2"></i>Laporan Bergambar (A4)
+                    </button>
+                </nav>
+
+                <!-- Quick Action Button -->
+                <div class="flex items-center space-x-3">
+                    <button onclick="openNewLogModal()" class="inline-flex items-center px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm transition-all shadow-sm">
+                        <i class="fa-solid fa-plus mr-1.5"></i>Rekod Baru
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile Navigation Menu -->
+        <div class="md:hidden border-t border-slate-800 bg-slate-900 px-2 pt-2 pb-3 space-y-1 flex justify-around">
+            <button onclick="switchTab('dashboard')" class="text-xs p-2 text-center text-white font-medium">
+                <i class="fa-solid fa-chart-pie block text-base mb-1"></i>Pemuka
+            </button>
+            <button onclick="switchTab('logs')" class="text-xs p-2 text-center text-slate-400 font-medium">
+                <i class="fa-solid fa-list-check block text-base mb-1"></i>Log
+            </button>
+            <button onclick="switchTab('inventory')" class="text-xs p-2 text-center text-slate-400 font-medium">
+                <i class="fa-solid fa-boxes-stacked block text-base mb-1"></i>Inventori
+            </button>
+            <button onclick="switchTab('report')" class="text-xs p-2 text-center text-slate-400 font-medium">
+                <i class="fa-solid fa-file-contract block text-base mb-1"></i>Laporan A4
+            </button>
+        </div>
+    </header>
+
+    <!-- Notification Toast Message -->
+    <div id="toast-message" class="fixed top-20 right-5 z-50 transform translate-x-full transition-transform duration-300 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl border border-slate-700 flex items-center space-x-3 no-print">
+        <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400 text-lg"></i>
+        <span id="toast-text" class="text-sm font-medium">Tindakan berjaya!</span>
+    </div>
+
+    <!-- Main Container -->
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+        <!-- TAB 1: DASHBOARD -->
+        <section id="tab-dashboard" class="tab-content space-y-6">
+            <!-- School Info Header Banner -->
+            <div class="bg-gradient-to-r from-brand-700 via-brand-600 to-indigo-700 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
+                <div class="absolute -right-10 -bottom-10 opacity-10 text-white text-9xl">
+                    <i class="fa-solid fa-graduation-cap"></i>
+                </div>
+                <div class="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                        <span class="inline-block px-3 py-1 bg-brand-800/60 backdrop-blur-md rounded-full text-xs font-semibold text-brand-100 border border-brand-400/30 mb-2">
+                            Program Digitalisasi Sekolah KPM
+                        </span>
+                        <h2 class="text-2xl sm:text-3xl font-extrabold tracking-tight">e-Tablet PdPc</h2>
+                        <p class="text-brand-100 text-sm mt-1 max-w-2xl">
+                            Sistem Peningkatan Literasi Digital Murid SMK Tinusa, Sandakan
+                        </p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="printCurrentLogReport()" class="px-4 py-2.5 bg-white text-brand-800 hover:bg-brand-50 shadow-md backdrop-blur-md rounded-xl font-bold text-sm border border-white/20 transition flex items-center">
+                            <i class="fa-solid fa-print mr-2 text-brand-600"></i>Cetak / Simpan PDF (A4)
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Overview Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Jumlah Tablet</p>
+                        <h3 class="text-2xl font-bold text-slate-800 mt-1" id="stat-total-tablets">20</h3>
+                        <p class="text-xs text-emerald-600 font-medium mt-1">
+                            <i class="fa-solid fa-check-circle mr-1"></i>100% Berdaftar
+                        </p>
+                    </div>
+                    <div class="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center text-xl font-bold">
+                        <i class="fa-solid fa-tablet"></i>
+                    </div>
+                </div>
+
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Sedang Dipinjam</p>
+                        <h3 class="text-2xl font-bold text-slate-800 mt-1" id="stat-active-borrowed">10</h3>
+                        <p class="text-xs text-amber-600 font-medium mt-1" id="stat-available-tablets">
+                            8 unit sedia dipinjam
+                        </p>
+                    </div>
+                    <div class="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center text-xl font-bold">
+                        <i class="fa-solid fa-hand-holding-hand"></i>
+                    </div>
+                </div>
+
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Jumlah Sesi PdPc</p>
+                        <h3 class="text-2xl font-bold text-slate-800 mt-1" id="stat-total-sessions">128</h3>
+                        <p class="text-xs text-emerald-600 font-medium mt-1">
+                            <i class="fa-solid fa-arrow-trend-up mr-1"></i>+14% bulan ini
+                        </p>
+                    </div>
+                    <div class="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center text-xl font-bold">
+                        <i class="fa-solid fa-chalkboard-user"></i>
+                    </div>
+                </div>
+
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Guru Aktif</p>
+                        <h3 class="text-2xl font-bold text-slate-800 mt-1" id="stat-active-teachers">16</h3>
+                        <p class="text-xs text-indigo-600 font-medium mt-1">
+                            Daripada 56 orang guru
+                        </p>
+                    </div>
+                    <div class="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center text-xl font-bold">
+                        <i class="fa-solid fa-user-graduate"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-base font-bold text-slate-800 flex items-center">
+                            <i class="fa-solid fa-chart-column text-brand-500 mr-2"></i>Kekerapan Penggunaan Mengikut Subjek
+                        </h3>
+                        <span class="text-xs text-slate-500">Tahun Semasa</span>
+                    </div>
+                    <div class="h-64 relative">
+                        <canvas id="subjectChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-base font-bold text-slate-800 flex items-center">
+                            <i class="fa-solid fa-pie-chart text-amber-500 mr-2"></i>Status Inventori Tablet
+                        </h3>
+                        <span class="text-xs text-slate-500">Real-time</span>
+                    </div>
+                    <div class="h-64 relative flex items-center justify-center">
+                        <canvas id="statusChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity Table -->
+            <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div class="p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800">Aktiviti PdPc Terkini</h3>
+                        <p class="text-xs text-slate-500 mt-0.5">Senarai rekod penggunaan tablet yang dimasukkan oleh guru</p>
+                    </div>
+                    <button onclick="switchTab('logs')" class="text-xs font-semibold text-brand-600 hover:text-brand-700 flex items-center">
+                        Lihat Semua Log <i class="fa-solid fa-arrow-right ml-1"></i>
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left text-slate-600">
+                        <thead class="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
+                            <tr>
+                                <th class="px-5 py-3">Tarikh & Masa</th>
+                                <th class="px-5 py-3">Nama Guru Peminjam</th>
+                                <th class="px-5 py-3">Subjek & Kelas</th>
+                                <th class="px-5 py-3">Aktiviti PdPc</th>
+                                <th class="px-5 py-3 text-center">Bil. Tablet</th>
+                                <th class="px-5 py-3 text-center">Tindakan</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dashboard-recent-tbody" class="divide-y divide-slate-100">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: REKOD & LOG PENGGUNAAN -->
+        <section id="tab-logs" class="tab-content hidden space-y-6">
+            <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
+                <div class="flex-grow flex flex-col sm:flex-row gap-3">
+                    <div class="relative flex-grow">
+                        <i class="fa-solid fa-search absolute left-3.5 top-3 text-slate-400"></i>
+                        <input type="text" id="log-search-input" onkeyup="filterLogs()" placeholder="Cari nama guru, subjek, tajuk aktiviti..." class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                    </div>
+                    <select id="log-filter-subject" onchange="filterLogs()" class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                        <option value="">Semua Subjek</option>
+                        <option value="Sains">Sains</option>
+                        <option value="Matematik">Matematik</option>
+                        <option value="Bahasa Melayu">Bahasa Melayu</option>
+                        <option value="Bahasa Inggeris">Bahasa Inggeris</option>
+                        <option value="Sejarah">Sejarah</option>
+                        <option value="RBT">RBT / ASLK</option>
+                    </select>
+                </div>
+
+                <button onclick="openNewLogModal()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg shadow-sm transition flex items-center justify-center">
+                    <i class="fa-solid fa-circle-plus mr-2"></i>Tambah Rekod PdPc
+                </button>
+            </div>
+
+            <!-- Full Logs Table -->
+            <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left text-slate-600">
+                        <thead class="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                            <tr>
+                                <th class="px-4 py-3.5">ID Log</th>
+                                <th class="px-4 py-3.5">Tarikh / Masa</th>
+                                <th class="px-4 py-3.5">Nama Guru</th>
+                                <th class="px-4 py-3.5">Subjek & Kelas</th>
+                                <th class="px-4 py-3.5">Tajuk Aktiviti</th>
+                                <th class="px-4 py-3.5 text-center">Gambar</th>
+                                <th class="px-4 py-3.5 text-center">Bil. Peranti</th>
+                                <th class="px-4 py-3.5 text-center">Tindakan</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-full-tbody" class="divide-y divide-slate-100">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: INVENTORI TABLET -->
+        <section id="tab-inventory" class="tab-content hidden space-y-6">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-5 rounded-xl border border-slate-200 shadow-sm gap-4">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <span>Senarai Inventori Tablet Sekolah</span>
+                        <span id="admin-badge" class="hidden text-xs px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-semibold border border-purple-200">
+                            <i class="fa-solid fa-user-shield mr-1"></i>MOD ADMIN AKTIF
+                        </span>
+                    </h3>
+                    <p class="text-xs text-slate-500 mt-0.5">Pantau dan sunting status fizikal serta rekod peminjam peranti tablet (Had: 20 Unit)</p>
+                </div>
+
+                <div class="flex items-center space-x-3 w-full sm:w-auto justify-end">
+                    <button id="btn-toggle-admin" onclick="toggleAdminMode()" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg border border-slate-300 transition flex items-center">
+                        <i class="fa-solid fa-lock text-slate-500 mr-1.5" id="admin-toggle-icon"></i>
+                        <span id="admin-toggle-text">Aktifkan Mod Admin</span>
+                    </button>
+                    <button onclick="addNewTabletPrompt()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium rounded-lg shadow-sm">
+                        <i class="fa-solid fa-plus mr-1"></i>Daftar Tablet Baru
+                    </button>
+                </div>
+            </div>
+
+            <div id="tablet-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <!-- Rendered dynamically -->
+            </div>
+        </section>
+
+        <!-- TAB 4: LAPORAN BERGAMBAR ONE-PAGE (A4 PRINT READY) -->
+        <section id="tab-report" class="tab-content hidden space-y-6">
+            <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4 no-print">
+                <div class="flex items-center space-x-3 w-full sm:w-auto">
+                    <label class="text-sm font-semibold text-slate-700 whitespace-nowrap">Pilih Rekod PdPc:</label>
+                    <select id="report-select-id" onchange="generateReportView(this.value)" class="w-full sm:w-80 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                        <!-- Options generated dynamically -->
+                    </select>
+                </div>
+
+                <div class="flex items-center space-x-2 w-full sm:w-auto justify-end">
+                    <button onclick="triggerPrintProcess()" class="px-5 py-2.5 bg-brand-600 hover:bg-brand-500 active:bg-brand-700 text-white text-sm font-bold rounded-lg shadow-md transition flex items-center cursor-pointer">
+                        <i class="fa-solid fa-print mr-2"></i>Cetak / Simpan PDF (A4)
+                    </button>
+                </div>
+            </div>
+
+            <!-- A4 SHEET CONTAINER PRINT AREA -->
+            <div class="flex justify-center">
+                <div id="print-area" class="bg-white w-full max-w-[210mm] min-h-[297mm] p-8 shadow-xl rounded-none md:rounded-lg border border-slate-200 text-slate-800 text-xs leading-relaxed flex flex-col justify-between">
+                    
+                    <div>
+                        <!-- Header KPM / Sekolah -->
+                        <div class="border-b-2 border-slate-800 pb-4 mb-4 flex items-center justify-between gap-4">
+                            <div class="w-16 h-16 flex-shrink-0 flex items-center justify-center bg-slate-100 rounded-lg border border-slate-300">
+                                <i class="fa-solid fa-school text-3xl text-slate-700"></i>
+                            </div>
+                            <div class="text-center flex-grow">
+                                <h2 class="text-base font-bold uppercase tracking-wide text-slate-900" id="rep-school-name">SMK TINUSA, SANDAKAN</h2>
+                                <p class="text-[11px] text-slate-600">KEMENTERIAN PENDIDIKAN MALAYSIA</p>
+                                <p class="text-[10px] text-slate-500 mt-0.5">LAPORAN BERGAMBAR PENGGUNAAN TABLET DALAM PdPc</p>
+                            </div>
+                            <div class="w-16 h-16 flex-shrink-0 flex items-center justify-center bg-brand-50 rounded-lg border border-brand-200">
+                                <i class="fa-solid fa-tablet-screen-button text-3xl text-brand-600"></i>
+                            </div>
+                        </div>
+
+                        <!-- Info Grid Table -->
+                        <div class="mb-5 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
+                            <div class="grid grid-cols-2 gap-y-2 gap-x-4 text-[11px]">
+                                <div><strong class="text-slate-600">Nama Guru:</strong> <span id="rep-guru-nama" class="font-semibold text-slate-900">-</span></div>
+                                <div><strong class="text-slate-600">Tarikh & Masa:</strong> <span id="rep-tarikh-masa" class="font-semibold text-slate-900">-</span></div>
+                                <div><strong class="text-slate-600">Subjek:</strong> <span id="rep-subjek" class="font-semibold text-slate-900">-</span></div>
+                                <div><strong class="text-slate-600">Kelas / Tingkatan:</strong> <span id="rep-kelas" class="font-semibold text-slate-900">-</span></div>
+                                <div><strong class="text-slate-600">Jumlah Tablet Digunakan:</strong> <span id="rep-bil-tablet" class="font-semibold text-slate-900">-</span> unit</div>
+                                <div><strong class="text-slate-600">Aplikasi / Perisian:</strong> <span id="rep-aplikasi" class="font-semibold text-slate-900">-</span></div>
+                            </div>
+                        </div>
+
+                        <!-- Tajuk & Ringkasan Aktiviti -->
+                        <div class="mb-5">
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-brand-700 bg-brand-50 px-2.5 py-1 rounded border-l-4 border-brand-600 mb-2">
+                                1. Tajuk & Ringkasan Aktiviti PdPc
+                            </h3>
+                            <p class="font-semibold text-sm text-slate-900 mb-1" id="rep-tajuk-aktiviti">-</p>
+                            <p class="text-slate-700 text-[11px] whitespace-pre-line leading-normal" id="rep-keterangan-aktiviti">-</p>
+                        </div>
+
+                        <!-- Photo Gallery Grid -->
+                        <div class="mb-5">
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-brand-700 bg-brand-50 px-2.5 py-1 rounded border-l-4 border-brand-600 mb-2">
+                                2. Lampiran Gambar Penggunaan Tablet oleh Murid
+                            </h3>
+                            <div class="grid grid-cols-2 gap-3" id="rep-photos-container">
+                                <!-- Dynamic Photos inserted here -->
+                            </div>
+                        </div>
+
+                        <!-- Refleksi & Impak -->
+                        <div class="mb-5">
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-brand-700 bg-brand-50 px-2.5 py-1 rounded border-l-4 border-brand-600 mb-2">
+                                3. Refleksi & Impak Pembelajaran Murid
+                            </h3>
+                            <div class="bg-amber-50/60 p-3 rounded border border-amber-200 text-[11px] text-slate-800" id="rep-impak-refleksi">
+                                -
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Signatures Section (Footer) -->
+                    <div class="pt-4 border-t border-slate-300 mt-auto">
+                        <div class="grid grid-cols-2 gap-8 text-[11px]">
+                            <div>
+                                <p class="text-slate-500 mb-8">Disediakan oleh:</p>
+                                <div class="border-b border-slate-400 w-48 mb-1"></div>
+                                <p class="font-bold text-slate-900" id="rep-sig-guru">( NAMA GURU )</p>
+                                <p class="text-slate-500 text-[10px]">Guru Subjek / Peminjam Tablet</p>
+                            </div>
+                            <div>
+                                <p class="text-slate-500 mb-8">Disahkan oleh:</p>
+                                <div class="border-b border-slate-400 w-48 mb-1"></div>
+                                <p class="font-bold text-slate-900">( PENGETUA / GURU BESAR )</p>
+                                <p class="text-slate-500 text-[10px]">Pentadbir Sekolah</p>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- MODAL: Password Admin Prompt -->
+    <div id="modal-admin-password" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4 no-print">
+        <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative">
+            <div class="text-center mb-4">
+                <div class="w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-2">
+                    <i class="fa-solid fa-lock"></i>
+                </div>
+                <h3 class="text-base font-bold text-slate-800">Pengesahan Pentadbir</h3>
+                <p class="text-xs text-slate-500 mt-1">Sila masukkan kata laluan admin untuk meneruskan.</p>
+            </div>
+
+            <form onsubmit="verifyAdminPassword(event)" class="space-y-4">
+                <div>
+                    <input type="password" id="input-admin-password" placeholder="Masukkan kata laluan" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-center focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                    <p id="password-error-msg" class="text-xs text-red-500 font-medium text-center mt-1 hidden">Kata laluan tidak sah!</p>
+                </div>
+
+                <div class="flex space-x-2">
+                    <button type="button" onclick="closeAdminPasswordModal()" class="w-1/2 py-2 border border-slate-300 rounded-lg text-slate-700 text-xs font-semibold hover:bg-slate-50">
+                        Batal
+                    </button>
+                    <button type="submit" class="w-1/2 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold shadow-sm">
+                        Sahkan
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: Pengesahan Padam Log -->
+    <div id="modal-delete" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4 no-print">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative text-center">
+            <div class="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-4">
+                <i class="fa-solid fa-trash-can"></i>
+            </div>
+            <h3 class="text-lg font-bold text-slate-800 mb-1">Padam Rekod Log Ini?</h3>
+            <p class="text-sm text-slate-500 mb-6" id="delete-modal-msg">Adakah anda pasti untuk memadam rekod penggunaan ini? Tindakan ini tidak boleh dibatalkan.</p>
+            
+            <div class="flex justify-center space-x-3">
+                <button onclick="closeDeleteModal()" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 text-sm font-medium hover:bg-slate-50">
+                    Batal
+                </button>
+                <button id="btn-confirm-delete" onclick="confirmDeleteLog()" class="px-5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-semibold shadow-sm">
+                    Ya, Padam
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Sunting Inventori Tablet (ADMIN ONLY) -->
+    <div id="modal-edit-tablet" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4 overflow-y-auto no-print">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+            <div class="flex justify-between items-center pb-3 border-b border-slate-100">
+                <h3 class="text-base font-bold text-slate-800 flex items-center">
+                    <i class="fa-solid fa-pen-to-square text-purple-600 mr-2"></i>Sunting Maklumat Tablet
+                </h3>
+                <button onclick="closeEditTabletModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <form id="form-edit-tablet" onsubmit="handleSaveTabletEdit(event)" class="space-y-4 mt-4">
+                <input type="hidden" id="edit-tablet-index">
+                
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">ID Tablet *</label>
+                    <input type="text" id="edit-tablet-id" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none font-mono">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Model / Spesifikasi *</label>
+                    <input type="text" id="edit-tablet-model" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Status Peranti *</label>
+                    <select id="edit-tablet-status" onchange="toggleBorrowerInput(this.value)" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                        <option value="Available">Tersedia (Available)</option>
+                        <option value="Dipinjam">Dipinjam</option>
+                        <option value="Penyelenggaraan">Dalam Penyelenggaraan</option>
+                    </select>
+                </div>
+
+                <div id="borrower-input-group">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Nama Guru Peminjam</label>
+                    <input type="text" id="edit-tablet-borrowedby" placeholder="Contoh: Cikgu Nurul Huda" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                </div>
+
+                <div class="pt-3 border-t border-slate-100 flex justify-between items-center">
+                    <button type="button" onclick="deleteTabletByAdmin()" class="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-semibold border border-red-200">
+                        <i class="fa-solid fa-trash-can mr-1"></i>Padam Unit
+                    </button>
+                    <div class="flex space-x-2">
+                        <button type="button" onclick="closeEditTabletModal()" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 text-sm font-medium hover:bg-slate-50">
+                            Batal
+                        </button>
+                        <button type="submit" class="px-5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-sm font-semibold shadow-sm">
+                            Simpan Perubahan
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: Tambah / Edit Rekod PdPc -->
+    <div id="modal-log" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4 overflow-y-auto no-print">
+        <div class="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl relative my-8">
+            <div class="flex justify-between items-center pb-4 border-b border-slate-100">
+                <h3 class="text-lg font-bold text-slate-800 flex items-center">
+                    <i class="fa-solid fa-pen-to-square text-brand-600 mr-2"></i>Rekod Penggunaan Tablet PdPc Baharu
+                </h3>
+                <button onclick="closeNewLogModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
+
+            <form id="form-log" onsubmit="handleSaveLog(event)" class="space-y-4 mt-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Nama Guru Peminjam *</label>
+                        <input type="text" id="form-guru" required placeholder="Contoh: Cikgu Nurul Huda" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Tarikh & Masa PdPc *</label>
+                        <input type="datetime-local" id="form-tarikh" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Subjek *</label>
+                        <select id="form-subjek" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                            <option value="Sains">Sains</option>
+                            <option value="Matematik">Matematik</option>
+                            <option value="Bahasa Melayu">Bahasa Melayu</option>
+                            <option value="Bahasa Inggeris">Bahasa Inggeris</option>
+                            <option value="Sejarah">Sejarah</option>
+                            <option value="RBT">RBT / Rekabentuk</option>
+                            <option value="Geografi">Geografi</option>
+                            <option value="Lain-lain">Lain-lain</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Kelas / Tingkatan *</label>
+                        <input type="text" id="form-kelas" required placeholder="Contoh: 4 Cemerlang" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Bil. Tablet Digunakan *</label>
+                        <input type="number" id="form-bil-tablet" min="1" max="20" value="10" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Aplikasi / Web yang Digunakan</label>
+                    <input type="text" id="form-aplikasi" placeholder="Contoh: Quizizz, Canva, PhET Interactive, Google Classroom" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Tajuk Aktiviti PdPc *</label>
+                    <input type="text" id="form-tajuk" required placeholder="Contoh: Kuiz Interaktif Sistem Suria & Eksplorasi 3D" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Keterangan Ringkas Aktiviti</label>
+                    <textarea id="form-keterangan" rows="2" placeholder="Terangkan langkah-langkah ringkas penggunaan tablet semasa PdPc..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none"></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Muat Naik Gambar Aktiviti (Sehingga 2 Gambar)</label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <input type="file" id="form-photo1" accept="image/*" onchange="previewImage(this, 'img-prev-1')" class="text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100">
+                            <div class="mt-2 h-24 bg-slate-100 rounded-lg border border-dashed border-slate-300 flex items-center justify-center overflow-hidden">
+                                <img id="img-prev-1" src="" class="hidden w-full h-full object-cover">
+                                <span id="img-prev-1-ph" class="text-xs text-slate-400">Gambar 1</span>
+                            </div>
+                        </div>
+                        <div>
+                            <input type="file" id="form-photo2" accept="image/*" onchange="previewImage(this, 'img-prev-2')" class="text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100">
+                            <div class="mt-2 h-24 bg-slate-100 rounded-lg border border-dashed border-slate-300 flex items-center justify-center overflow-hidden">
+                                <img id="img-prev-2" src="" class="hidden w-full h-full object-cover">
+                                <span id="img-prev-2-ph" class="text-xs text-slate-400">Gambar 2</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Refleksi / Impak Penggunaan Murid</label>
+                    <textarea id="form-impak" rows="2" placeholder="Contoh: 90% murid berjaya menyempurnakan tugasan dengan penglibatan aktif dan seronok." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none"></textarea>
+                </div>
+
+                <div class="pt-3 border-t border-slate-100 flex justify-end space-x-3">
+                    <button type="button" onclick="closeNewLogModal()" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 text-sm font-medium hover:bg-slate-50">
+                        Batal
+                    </button>
+                    <button type="submit" id="btn-submit-log" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-lg text-sm font-semibold shadow-sm transition flex items-center">
+                        <i class="fa-solid fa-floppy-disk mr-2"></i>Simpan Rekod
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Global state initializations
+        let tabletsInventory = [];
+        let pdpcLogs = [];
+        let logIdToDelete = null;
+        let currentSelectedLogId = '';
+        let subjectChartInstance = null;
+        let statusChartInstance = null;
+        let isAdminMode = false;
+        const ADMIN_PASSWORD = "Leen@1910";
+
+        const samplePhotos = [
+            'https://images.unsplash.com/photo-1509062522246-3755977927d7?q=80&w=800&auto=format&fit=crop',
+            'https://images.unsplash.com/photo-1577896851231-70ef18881754?q=80&w=800&auto=format&fit=crop',
+            'https://images.unsplash.com/photo-1580582932707-520aed937b7b?q=80&w=800&auto=format&fit=crop',
+            'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=800&auto=format&fit=crop'
+        ];
+
+        // Start Real-time Data Listeners from Firestore
+        window.startRealtimeListeners = function() {
+            if (!window.db) return;
+
+            // Ensure charts are initialized first
+            if (!subjectChartInstance && !statusChartInstance) {
+                initCharts();
+            }
+
+            // Real-time listener for Tablets Inventory
+            const tabletsRef = window.collection(window.db, ...window.TABLETS_COLLECTION_PATH);
+            window.onSnapshot(tabletsRef, (snapshot) => {
+                if (snapshot.empty) {
+                    // Seed initial 20 tablets if empty
+                    seedDefaultTablets();
+                    return;
+                }
+                tabletsInventory = [];
+                snapshot.forEach((doc) => {
+                    tabletsInventory.push(doc.data());
+                });
+                // Sort by tablet ID numerically
+                tabletsInventory.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+
+                renderInventoryGrid();
+                renderDashboard();
+                updateStatusChart();
+            }, (error) => {
+                console.error("Error listening to tablets: ", error);
+            });
+
+            // Real-time listener for PdPc Logs
+            const logsRef = window.collection(window.db, ...window.LOGS_COLLECTION_PATH);
+            window.onSnapshot(logsRef, (snapshot) => {
+                pdpcLogs = [];
+                snapshot.forEach((doc) => {
+                    pdpcLogs.push(doc.data());
+                });
+                // Sort newest date first
+                pdpcLogs.sort((a, b) => new Date(b.tarikh) - new Date(a.tarikh));
+
+                renderDashboard();
+                renderLogsTable();
+                populateReportDropdown();
+
+                if (pdpcLogs.length > 0 && !currentSelectedLogId) {
+                    generateReportView(pdpcLogs[0].id);
+                } else if (currentSelectedLogId) {
+                    generateReportView(currentSelectedLogId);
+                }
+            }, (error) => {
+                console.error("Error listening to logs: ", error);
+            });
+        };
+
+        // Seed 20 Default Tablets if database is clean
+        async function seedDefaultTablets() {
+            for (let i = 1; i <= 20; i++) {
+                let numStr = i < 10 ? '0' + i : i;
+                let status = 'Available';
+                let borrowedBy = '-';
+                if (i <= 10) {
+                    status = 'Dipinjam';
+                    borrowedBy = i % 2 === 0 ? 'Cikgu Nurul Huda' : 'Cikgu Ahmad Razak';
+                } else if (i === 19 || i === 20) {
+                    status = 'Penyelenggaraan';
+                }
+
+                const tabletObj = {
+                    id: `TBL-PAD-${numStr}`,
+                    model: 'Apple iPad 10th Gen (64GB)',
+                    status: status,
+                    borrowedBy: borrowedBy
+                };
+
+                const docRef = window.doc(window.db, ...window.TABLETS_COLLECTION_PATH, tabletObj.id);
+                await window.setDoc(docRef, tabletObj);
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            if (window.auth && window.auth.currentUser && typeof window.startRealtimeListeners === 'function') {
+                window.startRealtimeListeners();
+            }
+        });
+
+        // Toggle Admin Editing Mode with Password Check
+        function toggleAdminMode() {
+            if (isAdminMode) {
+                // If currently active, disable without password
+                isAdminMode = false;
+                applyAdminStateUI();
+                showNotification('Mod Admin dimatikan.');
+            } else {
+                // Open password modal to unlock Admin mode
+                document.getElementById('input-admin-password').value = '';
+                document.getElementById('password-error-msg').classList.add('hidden');
+                document.getElementById('modal-admin-password').classList.remove('hidden');
+                setTimeout(() => document.getElementById('input-admin-password').focus(), 100);
+            }
+        }
+
+        function closeAdminPasswordModal() {
+            document.getElementById('modal-admin-password').classList.add('hidden');
+        }
+
+        function verifyAdminPassword(event) {
+            event.preventDefault();
+            const inputPw = document.getElementById('input-admin-password').value;
+
+            if (inputPw === ADMIN_PASSWORD) {
+                isAdminMode = true;
+                closeAdminPasswordModal();
+                applyAdminStateUI();
+                showNotification('Mod Admin diaktifkan. Anda kini boleh menyunting inventori tablet.');
+            } else {
+                document.getElementById('password-error-msg').classList.remove('hidden');
+            }
+        }
+
+        function applyAdminStateUI() {
+            const badge = document.getElementById('admin-badge');
+            const icon = document.getElementById('admin-toggle-icon');
+            const text = document.getElementById('admin-toggle-text');
+            const btn = document.getElementById('btn-toggle-admin');
+
+            if (isAdminMode) {
+                badge.classList.remove('hidden');
+                icon.className = 'fa-solid fa-unlock text-purple-600 mr-1.5';
+                text.innerText = 'Matikan Mod Admin';
+                btn.className = 'px-3.5 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold rounded-lg border border-purple-300 transition flex items-center shadow-sm';
+            } else {
+                badge.classList.add('hidden');
+                icon.className = 'fa-solid fa-lock text-slate-500 mr-1.5';
+                text.innerText = 'Aktifkan Mod Admin';
+                btn.className = 'px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg border border-slate-300 transition flex items-center';
+            }
+
+            renderInventoryGrid();
+        }
+
+        // Open Modal to Edit Tablet Details by Admin
+        function openEditTabletModal(index) {
+            const tab = tabletsInventory[index];
+            if (!tab) return;
+
+            document.getElementById('edit-tablet-index').value = index;
+            document.getElementById('edit-tablet-id').value = tab.id;
+            document.getElementById('edit-tablet-model').value = tab.model;
+            document.getElementById('edit-tablet-status').value = tab.status;
+            document.getElementById('edit-tablet-borrowedby').value = tab.borrowedBy === '-' ? '' : tab.borrowedBy;
+
+            toggleBorrowerInput(tab.status);
+            document.getElementById('modal-edit-tablet').classList.remove('hidden');
+        }
+
+        function closeEditTabletModal() {
+            document.getElementById('modal-edit-tablet').classList.add('hidden');
+        }
+
+        function toggleBorrowerInput(status) {
+            const grp = document.getElementById('borrower-input-group');
+            if (status === 'Dipinjam') {
+                grp.classList.remove('hidden');
+            } else {
+                grp.classList.add('hidden');
+            }
+        }
+
+        async function handleSaveTabletEdit(event) {
+            event.preventDefault();
+            const idx = parseInt(document.getElementById('edit-tablet-index').value);
+            if (isNaN(idx) || !tabletsInventory[idx]) return;
+
+            const oldId = tabletsInventory[idx].id;
+            const newId = document.getElementById('edit-tablet-id').value.trim();
+            const newModel = document.getElementById('edit-tablet-model').value.trim();
+            const newStatus = document.getElementById('edit-tablet-status').value;
+            let newBorrower = document.getElementById('edit-tablet-borrowedby').value.trim();
+
+            if (newStatus !== 'Dipinjam' || !newBorrower) {
+                newBorrower = '-';
+            }
+
+            const updatedTablet = {
+                id: newId,
+                model: newModel,
+                status: newStatus,
+                borrowedBy: newBorrower
+            };
+
+            // If ID changed, delete old doc
+            if (oldId !== newId) {
+                await window.deleteDoc(window.doc(window.db, ...window.TABLETS_COLLECTION_PATH, oldId));
+            }
+
+            // Save to Firestore
+            const docRef = window.doc(window.db, ...window.TABLETS_COLLECTION_PATH, newId);
+            await window.setDoc(docRef, updatedTablet);
+
+            closeEditTabletModal();
+            showNotification(`Maklumat tablet ${newId} berjaya dikemaskini.`);
+        }
+
+        async function deleteTabletByAdmin() {
+            const idx = parseInt(document.getElementById('edit-tablet-index').value);
+            if (isNaN(idx) || !tabletsInventory[idx]) return;
+
+            const deletedId = tabletsInventory[idx].id;
+            const docRef = window.doc(window.db, ...window.TABLETS_COLLECTION_PATH, deletedId);
+            await window.deleteDoc(docRef);
+
+            closeEditTabletModal();
+            showNotification(`Tablet ${deletedId} telah dipadam daripada inventori.`);
+        }
+
+        // Toast Notification Display Helper
+        function showNotification(message, isError = false) {
+            const toast = document.getElementById('toast-message');
+            const text = document.getElementById('toast-text');
+            const icon = document.getElementById('toast-icon');
+
+            if (!toast || !text) return;
+
+            text.innerText = message;
+            if (isError) {
+                icon.className = 'fa-solid fa-circle-exclamation text-red-400 text-lg';
+            } else {
+                icon.className = 'fa-solid fa-circle-check text-emerald-400 text-lg';
+            }
+
+            toast.classList.remove('translate-x-full');
+            setTimeout(() => {
+                toast.classList.add('translate-x-full');
+            }, 3000);
+        }
+
+        // Tab Switching Function
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            const target = document.getElementById(`tab-${tabId}`);
+            if (target) target.classList.remove('hidden');
+
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('bg-brand-600', 'text-white');
+                btn.classList.add('text-slate-300');
+            });
+
+            const activeNav = document.getElementById(`nav-${tabId}`);
+            if (activeNav) {
+                activeNav.classList.add('bg-brand-600', 'text-white');
+                activeNav.classList.remove('text-slate-300');
+            }
+        }
+
+        function renderDashboard() {
+            const totalTablets = tabletsInventory.length;
+            const activeBorrowed = tabletsInventory.filter(t => t.status === 'Dipinjam').length;
+            const availableTablets = tabletsInventory.filter(t => t.status === 'Available').length;
+            const totalSessions = pdpcLogs.length;
+            const uniqueTeachers = new Set(pdpcLogs.map(l => l.guru)).size;
+
+            document.getElementById('stat-total-tablets').innerText = totalTablets;
+            document.getElementById('stat-active-borrowed').innerText = activeBorrowed;
+            document.getElementById('stat-available-tablets').innerText = `${availableTablets} unit sedia dipinjam`;
+            document.getElementById('stat-total-sessions').innerText = totalSessions;
+            document.getElementById('stat-active-teachers').innerText = uniqueTeachers;
+
+            // Update Subject Usage Frequency Chart based on live logs
+            updateSubjectChart();
+
+            // Render Recent Tbody
+            const tbody = document.getElementById('dashboard-recent-tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+
+            if (pdpcLogs.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-400">Tiada rekod aktiviti terkini.</td></tr>`;
+                return;
+            }
+
+            pdpcLogs.slice(0, 5).forEach(log => {
+                const formattedDate = new Date(log.tarikh).toLocaleString('ms-MY', {
+                    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                });
+
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50 transition";
+                tr.innerHTML = `
+                    <td class="px-5 py-3.5 font-medium text-slate-800 whitespace-nowrap">${formattedDate}</td>
+                    <td class="px-5 py-3.5 text-slate-900 font-semibold">${log.guru}</td>
+                    <td class="px-5 py-3.5">
+                        <span class="inline-block px-2 py-0.5 text-xs rounded bg-brand-50 text-brand-700 font-medium">${log.subjek}</span>
+                        <span class="text-xs text-slate-500 block">${log.kelas}</span>
+                    </td>
+                    <td class="px-5 py-3.5 max-w-xs truncate">${log.tajuk}</td>
+                    <td class="px-5 py-3.5 text-center font-bold text-slate-700">${log.bilTablet}</td>
+                    <td class="px-5 py-3.5 text-center">
+                        <button onclick="viewReportForLog('${log.id}')" class="px-3 py-1 bg-brand-50 hover:bg-brand-100 text-brand-700 font-semibold text-xs rounded-lg transition border border-brand-200">
+                            <i class="fa-solid fa-file-lines mr-1"></i>Laporan
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderLogsTable(filteredLogs = null) {
+            const logsToRender = filteredLogs || pdpcLogs;
+            const tbody = document.getElementById('logs-full-tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+
+            if (logsToRender.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-400">Tiada rekod penggunaan ditemui.</td></tr>`;
+                return;
+            }
+
+            logsToRender.forEach(log => {
+                const formattedDate = new Date(log.tarikh).toLocaleString('ms-MY', {
+                    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                });
+
+                const photoThumb = (log.photos && log.photos.length > 0) ? log.photos[0] : samplePhotos[0];
+
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50 transition";
+                tr.innerHTML = `
+                    <td class="px-4 py-3 font-mono text-xs text-slate-500">${log.id}</td>
+                    <td class="px-4 py-3 text-xs text-slate-700 whitespace-nowrap">${formattedDate}</td>
+                    <td class="px-4 py-3 font-semibold text-slate-900">${log.guru}</td>
+                    <td class="px-4 py-3">
+                        <span class="font-medium text-slate-800">${log.subjek}</span>
+                        <span class="text-xs text-slate-500 block">${log.kelas}</span>
+                    </td>
+                    <td class="px-4 py-3 text-slate-700 font-medium">${log.tajuk}</td>
+                    <td class="px-4 py-3 text-center">
+                        <img src="${photoThumb}" class="w-10 h-10 object-cover rounded-lg border border-slate-200 inline-block shadow-sm">
+                    </td>
+                    <td class="px-4 py-3 text-center font-bold text-slate-700">${log.bilTablet}</td>
+                    <td class="px-4 py-3 text-center whitespace-nowrap">
+                        <button onclick="openDeleteModal('${log.id}')" title="Padam Rekod Ini" class="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-sm transition inline-flex items-center">
+                            <i class="fa-solid fa-trash-can mr-1.5"></i>PADAM
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderInventoryGrid() {
+            const grid = document.getElementById('tablet-grid');
+            if (!grid) return;
+            grid.innerHTML = '';
+
+            tabletsInventory.forEach((tab, index) => {
+                let badgeClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                let iconClass = 'fa-check-circle text-emerald-500';
+                let statusTxt = 'Tersedia';
+
+                if (tab.status === 'Dipinjam') {
+                    badgeClass = 'bg-amber-50 text-amber-700 border-amber-200';
+                    iconClass = 'fa-clock text-amber-500';
+                    statusTxt = `Dipinjam (${tab.borrowedBy})`;
+                } else if (tab.status === 'Penyelenggaraan') {
+                    badgeClass = 'bg-red-50 text-red-700 border-red-200';
+                    iconClass = 'fa-triangle-exclamation text-red-500';
+                    statusTxt = 'Penyelenggaraan';
+                }
+
+                const card = document.createElement('div');
+                card.className = `bg-white p-4 rounded-xl border ${isAdminMode ? 'border-purple-300 shadow-md ring-1 ring-purple-200' : 'border-slate-200 shadow-sm'} flex flex-col justify-between transition-all`;
+                
+                let adminActionHtml = '';
+                if (isAdminMode) {
+                    adminActionHtml = `
+                        <div class="mt-3 pt-2 border-t border-purple-100 flex justify-between items-center">
+                            <span class="text-[10px] font-bold text-purple-600">ADMIN</span>
+                            <button onclick="openEditTabletModal(${index})" class="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg shadow-sm transition flex items-center">
+                                <i class="fa-solid fa-pen-to-square mr-1 text-[10px]"></i>Sunting
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    adminActionHtml = `
+                        <div class="mt-3 pt-2 border-t border-slate-100 flex justify-end">
+                            <button onclick="toggleTabletStatus('${tab.id}')" class="text-[11px] text-brand-600 hover:text-brand-800 font-medium">
+                                Tukar Status
+                            </button>
+                        </div>
+                    `;
+                }
+
+                card.innerHTML = `
+                    <div>
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="font-mono text-xs font-bold text-slate-800">${tab.id}</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded-full border ${badgeClass} font-semibold flex items-center">
+                                <i class="fa-solid ${iconClass} mr-1"></i>${tab.status}
+                            </span>
+                        </div>
+                        <h4 class="text-xs font-semibold text-slate-800">${tab.model}</h4>
+                        <p class="text-[11px] text-slate-500 mt-1">Status: ${statusTxt}</p>
+                    </div>
+                    ${adminActionHtml}
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        async function toggleTabletStatus(tabletId) {
+            const tab = tabletsInventory.find(t => t.id === tabletId);
+            if (tab) {
+                let newStatus = 'Available';
+                let newBorrowedBy = '-';
+
+                if (tab.status === 'Available') {
+                    newStatus = 'Dipinjam';
+                    newBorrowedBy = 'Cikgu Tempatan';
+                } else if (tab.status === 'Dipinjam') {
+                    newStatus = 'Available';
+                    newBorrowedBy = '-';
+                }
+
+                const updated = {
+                    ...tab,
+                    status: newStatus,
+                    borrowedBy: newBorrowedBy
+                };
+
+                const docRef = window.doc(window.db, ...window.TABLETS_COLLECTION_PATH, tabletId);
+                await window.setDoc(docRef, updated);
+            }
+        }
+
+        async function addNewTabletPrompt() {
+            const nextIndex = tabletsInventory.length + 1;
+            const newId = `TBL-PAD-${nextIndex < 10 ? '0' + nextIndex : nextIndex}`;
+            const newTablet = {
+                id: newId,
+                model: 'Apple iPad 10th Gen (64GB)',
+                status: 'Available',
+                borrowedBy: '-'
+            };
+
+            const docRef = window.doc(window.db, ...window.TABLETS_COLLECTION_PATH, newId);
+            await window.setDoc(docRef, newTablet);
+            showNotification('Tablet baru berjaya didaftarkan.');
+        }
+
+        function openDeleteModal(logId) {
+            logIdToDelete = logId;
+            const log = pdpcLogs.find(l => l.id === logId);
+            if (log) {
+                document.getElementById('delete-modal-msg').innerText = `Adakah anda pasti mahu memadam rekod "${log.tajuk}" oleh ${log.guru}?`;
+            }
+            document.getElementById('modal-delete').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+            logIdToDelete = null;
+            document.getElementById('modal-delete').classList.add('hidden');
+        }
+
+        async function confirmDeleteLog() {
+            if (!logIdToDelete) return;
+
+            const docRef = window.doc(window.db, ...window.LOGS_COLLECTION_PATH, logIdToDelete);
+            await window.deleteDoc(docRef);
+
+            closeDeleteModal();
+            showNotification('Rekod penggunaan berjaya dipadam.');
+        }
+
+        function filterLogs() {
+            const query = document.getElementById('log-search-input').value.toLowerCase();
+            const subject = document.getElementById('log-filter-subject').value;
+
+            const filtered = pdpcLogs.filter(log => {
+                const matchQuery = log.guru.toLowerCase().includes(query) ||
+                                   log.subjek.toLowerCase().includes(query) ||
+                                   log.tajuk.toLowerCase().includes(query) ||
+                                   log.kelas.toLowerCase().includes(query);
+                const matchSubject = subject === '' || log.subjek === subject;
+                return matchQuery && matchSubject;
+            });
+
+            renderLogsTable(filtered);
+        }
+
+        function populateReportDropdown() {
+            const select = document.getElementById('report-select-id');
+            if (!select) return;
+            select.innerHTML = '';
+
+            if (pdpcLogs.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = "";
+                opt.text = "Tiada rekod laporan tersedia";
+                select.appendChild(opt);
+                return;
+            }
+
+            pdpcLogs.forEach(log => {
+                const option = document.createElement('option');
+                option.value = log.id;
+                option.text = `${log.guru} - ${log.subjek} (${log.tajuk.substring(0, 30)}...)`;
+                select.appendChild(option);
+            });
+
+            if (currentSelectedLogId && pdpcLogs.some(l => l.id === currentSelectedLogId)) {
+                select.value = currentSelectedLogId;
+            } else if (pdpcLogs.length > 0) {
+                select.value = pdpcLogs[0].id;
+            }
+        }
+
+        function viewReportForLog(logId) {
+            currentSelectedLogId = logId;
+            switchTab('report');
+            const select = document.getElementById('report-select-id');
+            if (select) select.value = logId;
+            generateReportView(logId);
+        }
+
+        function printCurrentLogReport() {
+            if (pdpcLogs.length > 0) {
+                const logToPrint = currentSelectedLogId && pdpcLogs.some(l => l.id === currentSelectedLogId) 
+                    ? currentSelectedLogId 
+                    : pdpcLogs[0].id;
+                viewReportForLog(logToPrint);
+                setTimeout(() => {
+                    triggerPrintProcess();
+                }, 300);
+            } else {
+                showNotification('Tiada rekod penggunaan untuk dicetak.', true);
+            }
+        }
+
+        // Print/Save PDF Action Execution with iframe Fallback
+        function triggerPrintProcess() {
+            if (pdpcLogs.length === 0) {
+                showNotification('Tiada rekod laporan untuk dicetak.', true);
+                return;
+            }
+
+            if (currentSelectedLogId) {
+                generateReportView(currentSelectedLogId);
+            }
+
+            try {
+                window.focus();
+                window.print();
+            } catch (err) {
+                console.warn("Direct window.print restricted, attempting popup window print:", err);
+            }
+
+            // Fallback for sandboxed environments
+            try {
+                const printContent = document.getElementById('print-area');
+                if (!printContent) return;
+
+                const printWindow = window.open('', '_blank', 'width=900,height=1000');
+                if (!printWindow) {
+                    return;
+                }
+
+                printWindow.document.write(`
+                    <!DOCTYPE html>
+                    <html lang="ms">
+                    <head>
+                        <meta charset="UTF-8">
+                        <title>Laporan Penggunaan Tablet PdPc</title>
+                        <script src="https://cdn.tailwindcss.com"><\/script>
+                        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+                        <style>
+                            body { font-family: 'Inter', sans-serif; background: #fff; color: #1e293b; margin: 0; padding: 15mm; }
+                            @page { size: A4 portrait; margin: 0; }
+                        </style>
+                    </head>
+                    <body>
+                        <div style="max-width:210mm; margin:0 auto;">
+                            ${printContent.innerHTML}
+                        </div>
+                        <script>
+                            window.onload = function() {
+                                setTimeout(function() {
+                                    window.focus();
+                                    window.print();
+                                    window.close();
+                                }, 500);
+                            };
+                        <\/script>
+                    </body>
+                    </html>
+                `);
+                printWindow.document.close();
+            } catch (e) {
+                showNotification('Tekan Ctrl+P (atau Cmd+P pada Mac) untuk Simpan PDF.', true);
+            }
+        }
+
+        function generateReportView(logId) {
+            if (!logId) return;
+            currentSelectedLogId = logId;
+            const log = pdpcLogs.find(l => l.id === logId) || pdpcLogs[0];
+            if (!log) return;
+
+            const formattedDate = new Date(log.tarikh).toLocaleString('ms-MY', {
+                weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+            });
+
+            document.getElementById('rep-guru-nama').innerText = log.guru;
+            document.getElementById('rep-tarikh-masa').innerText = formattedDate;
+            document.getElementById('rep-subjek').innerText = log.subjek;
+            document.getElementById('rep-kelas').innerText = log.kelas;
+            document.getElementById('rep-bil-tablet').innerText = log.bilTablet;
+            document.getElementById('rep-aplikasi').innerText = log.aplikasi || 'Aplikasi Pendidikan Digital';
+            document.getElementById('rep-tajuk-aktiviti').innerText = log.tajuk;
+            document.getElementById('rep-keterangan-aktiviti').innerText = log.keterangan;
+            document.getElementById('rep-impak-refleksi').innerText = log.impak;
+            document.getElementById('rep-sig-guru').innerText = `( ${log.guru.toUpperCase()} )`;
+
+            const photosContainer = document.getElementById('rep-photos-container');
+            if (!photosContainer) return;
+            photosContainer.innerHTML = '';
+
+            const displayPhotos = (log.photos && log.photos.length > 0) ? log.photos : [samplePhotos[0], samplePhotos[1]];
+
+            displayPhotos.forEach((imgUrl, index) => {
+                const imgBox = document.createElement('div');
+                imgBox.className = "bg-slate-100 border border-slate-300 rounded-lg overflow-hidden p-1.5 flex flex-col items-center";
+                imgBox.innerHTML = `
+                    <div class="w-full h-44 overflow-hidden rounded bg-slate-200">
+                        <img src="${imgUrl}" class="w-full h-full object-cover">
+                    </div>
+                    <span class="text-[10px] text-slate-500 font-medium mt-1">Foto Aktiviti ${index + 1}: Murid Menggunakan Tablet</span>
+                `;
+                photosContainer.appendChild(imgBox);
+            });
+        }
+
+        function openNewLogModal() {
+            document.getElementById('form-log').reset();
+            
+            const img1 = document.getElementById('img-prev-1');
+            const img2 = document.getElementById('img-prev-2');
+            if (img1) { img1.src = ''; img1.classList.add('hidden'); }
+            if (img2) { img2.src = ''; img2.classList.add('hidden'); }
+            
+            const ph1 = document.getElementById('img-prev-1-ph');
+            const ph2 = document.getElementById('img-prev-2-ph');
+            if (ph1) ph1.classList.remove('hidden');
+            if (ph2) ph2.classList.remove('hidden');
+
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            const dateInput = document.getElementById('form-tarikh');
+            if (dateInput) dateInput.value = now.toISOString().slice(0, 16);
+
+            document.getElementById('modal-log').classList.remove('hidden');
+        }
+
+        function closeNewLogModal() {
+            const modal = document.getElementById('modal-log');
+            if (modal) {
+                modal.classList.add('hidden');
+            }
+        }
+
+        function previewImage(input, targetImgId) {
+            const file = input.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = document.getElementById(targetImgId);
+                    const ph = document.getElementById(`${targetImgId}-ph`);
+                    if (img) {
+                        img.src = e.target.result;
+                        img.classList.remove('hidden');
+                    }
+                    if (ph) ph.classList.add('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        async function handleSaveLog(event) {
+            event.preventDefault();
+
+            const submitBtn = document.getElementById('btn-submit-log');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i>Menyimpan...`;
+            }
+
+            try {
+                const guru = document.getElementById('form-guru').value;
+                const tarikh = document.getElementById('form-tarikh').value;
+                const subjek = document.getElementById('form-subjek').value;
+                const kelas = document.getElementById('form-kelas').value;
+                const bilTablet = parseInt(document.getElementById('form-bil-tablet').value) || 10;
+                const aplikasi = document.getElementById('form-aplikasi').value;
+                const tajuk = document.getElementById('form-tajuk').value;
+                const keterangan = document.getElementById('form-keterangan').value;
+                const impak = document.getElementById('form-impak').value;
+
+                let photos = [];
+                const img1 = document.getElementById('img-prev-1');
+                const img2 = document.getElementById('img-prev-2');
+                const img1Src = img1 ? img1.src : '';
+                const img2Src = img2 ? img2.src : '';
+
+                if (img1Src && img1Src.startsWith('data:image')) photos.push(img1Src);
+                if (img2Src && img2Src.startsWith('data:image')) photos.push(img2Src);
+
+                if (photos.length === 0) {
+                    photos = [
+                        samplePhotos[Math.floor(Math.random() * samplePhotos.length)],
+                        samplePhotos[Math.floor(Math.random() * samplePhotos.length)]
+                    ];
+                }
+
+                const newId = `LOG-${Date.now()}`;
+                const newLog = {
+                    id: newId,
+                    guru,
+                    subjek,
+                    kelas,
+                    tarikh,
+                    bilTablet,
+                    aplikasi,
+                    tajuk,
+                    keterangan,
+                    photos,
+                    impak: impak || 'Aktiviti berjalan lancar dan murid terlibat secara aktif sepanjang sesi PdPc.'
+                };
+
+                // Save Log to Firestore / Local state
+                if (window.db && window.doc && window.setDoc && window.LOGS_COLLECTION_PATH) {
+                    const docRef = window.doc(window.db, ...window.LOGS_COLLECTION_PATH, newId);
+                    await window.setDoc(docRef, newLog);
+                } else {
+                    // Fallback to in-memory list if offline/demo
+                    pdpcLogs.unshift(newLog);
+                    renderDashboard();
+                    renderLogsTable();
+                    populateReportDropdown();
+                }
+
+                // Explicitly close modal and notify user
+                closeNewLogModal();
+                showNotification('Rekod PdPc baharu berjaya disimpan.');
+                viewReportForLog(newLog.id);
+            } catch (err) {
+                console.error("Error saving log:", err);
+                showNotification('Ralat semasa menyimpan rekod. Sila cuba lagi.', true);
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = `<i class="fa-solid fa-floppy-disk mr-2"></i>Simpan Rekod`;
+                }
+            }
+        }
+
+        function initCharts() {
+            const subjectCtx = document.getElementById('subjectChart');
+            const statusCtx = document.getElementById('statusChart');
+
+            if (subjectCtx) {
+                subjectChartInstance = new Chart(subjectCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Bilangan Sesi PdPc',
+                            data: [],
+                            backgroundColor: '#0284c7',
+                            borderRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: { 
+                                beginAtZero: true, 
+                                ticks: { stepSize: 1 },
+                                grid: { color: '#f1f5f9' } 
+                            },
+                            x: { grid: { display: false } }
+                        }
+                    }
+                });
+            }
+
+            if (statusCtx) {
+                statusChartInstance = new Chart(statusCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Tersedia', 'Dipinjam', 'Penyelenggaraan'],
+                        datasets: [{
+                            data: [0, 0, 0],
+                            backgroundColor: ['#10b981', '#f59e0b', '#ef4444']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'bottom' }
+                        }
+                    }
+                });
+            }
+        }
+
+        function updateSubjectChart() {
+            if (!subjectChartInstance) return;
+
+            // Count frequencies per subject dynamically from pdpcLogs
+            const counts = {};
+            pdpcLogs.forEach(log => {
+                const subj = log.subjek || 'Lain-lain';
+                counts[subj] = (counts[subj] || 0) + 1;
+            });
+
+            const labels = Object.keys(counts);
+            const data = Object.values(counts);
+
+            if (labels.length === 0) {
+                subjectChartInstance.data.labels = ['Tiada Rekod'];
+                subjectChartInstance.data.datasets[0].data = [0];
+            } else {
+                subjectChartInstance.data.labels = labels;
+                subjectChartInstance.data.datasets[0].data = data;
+            }
+
+            subjectChartInstance.update();
+        }
+
+        function updateStatusChart() {
+            if (!statusChartInstance) return;
+            const available = tabletsInventory.filter(t => t.status === 'Available').length;
+            const borrowed = tabletsInventory.filter(t => t.status === 'Dipinjam').length;
+            const maintenance = tabletsInventory.filter(t => t.status === 'Penyelenggaraan').length;
+
+            statusChartInstance.data.datasets[0].data = [available, borrowed, maintenance];
+            statusChartInstance.update();
+        }
+    </script>
+</body>
+</html>
