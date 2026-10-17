@@ -14,6 +14,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <script>
+        // Google Apps Script Backend Web App URL
+        window.GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw0IGl5JQanL98LtJ6gwwPnRJPOx4Jv38t8Qf2JEGzFvdH_k5i0_kumqwSME30hDYSW/exec";
+
         tailwind.config = {
             theme: {
                 extend: {
@@ -97,15 +100,15 @@
             color: #1e293b;
         }
 
-        /* Print formatting for One Page Report */
+        /* Optimized One-Page Print Layout */
         @media print {
             html, body {
                 background: #ffffff !important;
                 color: #000000 !important;
                 padding: 0 !important;
                 margin: 0 !important;
-                height: auto !important;
-                overflow: visible !important;
+                height: 100vh !important;
+                overflow: hidden !important;
             }
             .no-print, header, nav, #toast-message, .modal, #desktop-nav {
                 display: none !important;
@@ -118,6 +121,7 @@
                 padding: 0 !important;
                 margin: 0 !important;
                 width: 100% !important;
+                height: 100% !important;
             }
             #print-area {
                 position: relative !important;
@@ -125,12 +129,18 @@
                 top: 0 !important;
                 width: 100% !important;
                 max-width: 100% !important;
+                height: 100% !important;
+                max-height: 285mm !important;
                 margin: 0 !important;
-                padding: 8mm 10mm !important;
+                padding: 4mm 6mm !important;
                 border: none !important;
                 box-shadow: none !important;
-                page-break-after: avoid;
-                page-break-inside: avoid;
+                box-sizing: border-box !important;
+                page-break-after: avoid !important;
+                page-break-inside: avoid !important;
+                display: flex !important;
+                flex-direction: column !important;
+                justify-content: space-between !important;
             }
             @page {
                 size: A4 portrait;
@@ -158,8 +168,47 @@
 <body class="min-h-screen flex flex-col antialiased bg-slate-50">
 
     <script type="module">
-        // Safe Firebase Sync Module Initialization with Fallback
+        // Safe Firebase & GAS Sync Module Initialization
         window.isFirebaseActive = false;
+
+        // Fetch logs from Google Apps Script Web App
+        window.fetchDataFromGAS = async function() {
+            if (!window.GAS_WEB_APP_URL) return;
+            try {
+                const response = await fetch(window.GAS_WEB_APP_URL);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (Array.isArray(data) && data.length > 0) {
+                        const parsedLogs = data.map(item => {
+                            let parsedPhotos = [];
+                            try {
+                                parsedPhotos = typeof item.Photos === 'string' ? JSON.parse(item.Photos) : (item.Photos || []);
+                            } catch (e) {
+                                parsedPhotos = [];
+                            }
+                            return {
+                                id: item.ID || `LOG-${Date.now()}`,
+                                guru: item.Guru || item.guru || '',
+                                tarikh: item.Tarikh || item.tarikh || new Date().toISOString(),
+                                subjek: item.Subjek || item.subjek || '',
+                                kelas: item.Kelas || item.kelas || '',
+                                bilTablet: item.BilTablet || item.bilTablet || 10,
+                                aplikasi: item.Aplikasi || item.aplikasi || '',
+                                tajuk: item.Tajuk || item.tajuk || '',
+                                keterangan: item.Keterangan || item.keterangan || '',
+                                impak: item.Impak || item.impak || '',
+                                photos: parsedPhotos
+                            };
+                        });
+                        window.pdpcLogs = parsedLogs;
+                        window.saveDataLocal('pdpc_logs', window.pdpcLogs);
+                        if (typeof window.refreshUI === 'function') window.refreshUI();
+                    }
+                }
+            } catch (err) {
+                console.log("Menggunakan log tempatan/Firebase (GAS sync fallback):", err);
+            }
+        };
 
         try {
             const firebaseModule = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
@@ -187,11 +236,13 @@
                 window.isFirebaseActive = true;
             }
         } catch (err) {
-            console.log("Aplikasi menggunakan mod data tempatan (Offline LocalStorage).");
+            console.log("Aplikasi menggunakan mod data tempatan (Offline LocalStorage/GAS).");
             window.isFirebaseActive = false;
         }
 
         window.startRealtimeListeners = function() {
+            window.fetchDataFromGAS();
+
             if (window.isFirebaseActive && window.db) {
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'tablet-pdpc-app';
 
@@ -537,87 +588,87 @@
 
                 <div class="flex items-center space-x-2 w-full sm:w-auto justify-end">
                     <button onclick="triggerPrintProcess()" class="px-5 py-2.5 bg-brand-600 hover:bg-brand-500 active:bg-brand-700 text-white text-sm font-bold rounded-lg shadow-md transition flex items-center cursor-pointer">
-                        <i class="fa-solid fa-print mr-2"></i>Cetak / Simpan PDF (A4)
+                        <i class="fa-solid fa-print mr-2"></i>Cetak / Simpan PDF (A4 1 Muka Surat)
                     </button>
                 </div>
             </div>
 
-            <!-- A4 SHEET CONTAINER -->
+            <!-- STRICT 1-PAGE A4 CONTAINER -->
             <div class="flex justify-center">
-                <div id="print-area" class="bg-white w-full max-w-[210mm] min-h-[297mm] p-8 shadow-xl rounded-none md:rounded-lg border border-slate-200 text-slate-800 text-xs leading-relaxed flex flex-col justify-between">
+                <div id="print-area" class="bg-white w-full max-w-[210mm] h-[285mm] p-6 shadow-xl rounded-none md:rounded-lg border border-slate-200 text-slate-800 text-[11px] leading-tight flex flex-col justify-between overflow-hidden box-border">
                     
-                    <div>
+                    <div class="flex-grow flex flex-col justify-between">
                         <!-- Header -->
-                        <div class="border-b-2 border-slate-800 pb-4 mb-4 flex items-center justify-between gap-4">
-                            <div class="w-16 h-16 flex-shrink-0 flex items-center justify-center bg-slate-100 rounded-lg border border-slate-300">
-                                <i class="fa-solid fa-school text-3xl text-slate-700"></i>
+                        <div class="border-b-2 border-slate-800 pb-2 mb-2 flex items-center justify-between gap-3">
+                            <div class="w-12 h-12 flex-shrink-0 flex items-center justify-center bg-slate-100 rounded border border-slate-300">
+                                <i class="fa-solid fa-school text-2xl text-slate-700"></i>
                             </div>
                             <div class="text-center flex-grow">
-                                <h2 class="text-base font-bold uppercase tracking-wide text-slate-900" id="rep-school-name">SMK TINUSA, SANDAKAN</h2>
-                                <p class="text-[11px] text-slate-600">KEMENTERIAN PENDIDIKAN MALAYSIA</p>
-                                <p class="text-[10px] text-slate-500 mt-0.5">LAPORAN BERGAMBAR PENGGUNAAN TABLET DALAM PdPc</p>
+                                <h2 class="text-sm font-bold uppercase tracking-wide text-slate-900" id="rep-school-name">SMK TINUSA, SANDAKAN</h2>
+                                <p class="text-[10px] text-slate-600 font-medium">KEMENTERIAN PENDIDIKAN MALAYSIA</p>
+                                <p class="text-[9px] text-slate-500 font-bold uppercase mt-0.5">LAPORAN BERGAMBAR PENGGUNAAN TABLET DALAM PdPc</p>
                             </div>
-                            <div class="w-16 h-16 flex-shrink-0 flex items-center justify-center bg-brand-50 rounded-lg border border-brand-200">
-                                <i class="fa-solid fa-tablet-screen-button text-3xl text-brand-600"></i>
+                            <div class="w-12 h-12 flex-shrink-0 flex items-center justify-center bg-brand-50 rounded border border-brand-200">
+                                <i class="fa-solid fa-tablet-screen-button text-2xl text-brand-600"></i>
                             </div>
                         </div>
 
                         <!-- Metadata Grid -->
-                        <div class="mb-5 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
-                            <div class="grid grid-cols-2 gap-y-2 gap-x-4 text-[11px]">
+                        <div class="mb-2.5 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                            <div class="grid grid-cols-2 gap-y-1 gap-x-3 text-[10px]">
                                 <div><strong class="text-slate-600">Nama Guru:</strong> <span id="rep-guru-nama" class="font-semibold text-slate-900">-</span></div>
                                 <div><strong class="text-slate-600">Tarikh & Masa:</strong> <span id="rep-tarikh-masa" class="font-semibold text-slate-900">-</span></div>
                                 <div><strong class="text-slate-600">Subjek:</strong> <span id="rep-subjek" class="font-semibold text-slate-900">-</span></div>
                                 <div><strong class="text-slate-600">Kelas / Tingkatan:</strong> <span id="rep-kelas" class="font-semibold text-slate-900">-</span></div>
-                                <div><strong class="text-slate-600">Jumlah Tablet Digunakan:</strong> <span id="rep-bil-tablet" class="font-semibold text-slate-900">-</span> unit</div>
+                                <div><strong class="text-slate-600">Jumlah Tablet:</strong> <span id="rep-bil-tablet" class="font-semibold text-slate-900">-</span> unit</div>
                                 <div><strong class="text-slate-600">Aplikasi / Perisian:</strong> <span id="rep-aplikasi" class="font-semibold text-slate-900">-</span></div>
                             </div>
                         </div>
 
                         <!-- Activity Title & Description -->
-                        <div class="mb-5">
-                            <h3 class="text-xs font-bold uppercase tracking-wider text-brand-700 bg-brand-50 px-2.5 py-1 rounded border-l-4 border-brand-600 mb-2">
+                        <div class="mb-2.5">
+                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-brand-800 bg-brand-50 px-2 py-0.5 rounded border-l-4 border-brand-600 mb-1">
                                 1. Tajuk & Ringkasan Aktiviti PdPc
                             </h3>
-                            <p class="font-semibold text-sm text-slate-900 mb-1" id="rep-tajuk-aktiviti">-</p>
-                            <p class="text-slate-700 text-[11px] whitespace-pre-line leading-normal" id="rep-keterangan-aktiviti">-</p>
+                            <p class="font-semibold text-xs text-slate-900 mb-0.5" id="rep-tajuk-aktiviti">-</p>
+                            <p class="text-slate-700 text-[10px] whitespace-pre-line leading-normal max-h-16 overflow-hidden" id="rep-keterangan-aktiviti">-</p>
                         </div>
 
                         <!-- Photo Attachments -->
-                        <div class="mb-5">
-                            <h3 class="text-xs font-bold uppercase tracking-wider text-brand-700 bg-brand-50 px-2.5 py-1 rounded border-l-4 border-brand-600 mb-2">
+                        <div class="mb-2.5">
+                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-brand-800 bg-brand-50 px-2 py-0.5 rounded border-l-4 border-brand-600 mb-1.5">
                                 2. Lampiran Gambar Penggunaan Tablet oleh Murid
                             </h3>
-                            <div class="grid grid-cols-2 gap-3" id="rep-photos-container">
-                                <!-- Photos rendered dynamically -->
+                            <div class="grid grid-cols-2 gap-2.5" id="rep-photos-container">
+                                <!-- Photos rendered dynamically with fixed max height -->
                             </div>
                         </div>
 
                         <!-- Reflection -->
-                        <div class="mb-5">
-                            <h3 class="text-xs font-bold uppercase tracking-wider text-brand-700 bg-brand-50 px-2.5 py-1 rounded border-l-4 border-brand-600 mb-2">
+                        <div class="mb-2.5">
+                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-brand-800 bg-brand-50 px-2 py-0.5 rounded border-l-4 border-brand-600 mb-1">
                                 3. Refleksi & Impak Pembelajaran Murid
                             </h3>
-                            <div class="bg-amber-50/60 p-3 rounded border border-amber-200 text-[11px] text-slate-800" id="rep-impak-refleksi">
+                            <div class="bg-amber-50/60 p-2 rounded border border-amber-200 text-[10px] text-slate-800 leading-normal max-h-14 overflow-hidden" id="rep-impak-refleksi">
                                 -
                             </div>
                         </div>
                     </div>
 
                     <!-- Signatures Footer -->
-                    <div class="pt-4 border-t border-slate-300 mt-auto">
-                        <div class="grid grid-cols-2 gap-8 text-[11px]">
+                    <div class="pt-2 border-t border-slate-300 mt-auto">
+                        <div class="grid grid-cols-2 gap-6 text-[10px]">
                             <div>
-                                <p class="text-slate-500 mb-8">Disediakan oleh:</p>
-                                <div class="border-b border-slate-400 w-48 mb-1"></div>
+                                <p class="text-slate-500 mb-6">Disediakan oleh:</p>
+                                <div class="border-b border-slate-400 w-40 mb-1"></div>
                                 <p class="font-bold text-slate-900" id="rep-sig-guru">( NAMA GURU )</p>
-                                <p class="text-slate-500 text-[10px]">Guru Subjek / Peminjam Tablet</p>
+                                <p class="text-slate-500 text-[9px]">Guru Subjek / Peminjam Tablet</p>
                             </div>
                             <div>
-                                <p class="text-slate-500 mb-8">Disahkan oleh:</p>
-                                <div class="border-b border-slate-400 w-48 mb-1"></div>
+                                <p class="text-slate-500 mb-6">Disahkan oleh:</p>
+                                <div class="border-b border-slate-400 w-40 mb-1"></div>
                                 <p class="font-bold text-slate-900">( PENGETUA / GURU BESAR )</p>
-                                <p class="text-slate-500 text-[10px]">Pentadbir Sekolah</p>
+                                <p class="text-slate-500 text-[9px]">Pentadbir Sekolah</p>
                             </div>
                         </div>
                     </div>
@@ -1384,33 +1435,45 @@
                         <html lang="ms">
                         <head>
                             <meta charset="UTF-8">
-                            <title>Laporan_PdPc_Tablet_A4</title>
+                            <title>Laporan_PdPc_Tablet_A4_SinglePage</title>
                             <script src="https://cdn.tailwindcss.com"><\/script>
                             <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
                             <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
                             <style>
-                                body {
+                                html, body {
                                     font-family: 'Inter', sans-serif;
                                     background: #ffffff;
                                     margin: 0;
-                                    padding: 10mm;
+                                    padding: 0;
+                                    height: 100vh;
+                                    overflow: hidden;
+                                }
+                                body {
                                     display: flex;
                                     justify-content: center;
+                                    align-items: flex-start;
                                 }
                                 #print-area {
                                     width: 100% !important;
                                     max-width: 210mm !important;
+                                    height: 100vh !important;
+                                    max-height: 282mm !important;
                                     box-shadow: none !important;
                                     border: none !important;
-                                    padding: 0 !important;
+                                    padding: 4mm 6mm !important;
+                                    box-sizing: border-box !important;
+                                    display: flex !important;
+                                    flex-direction: column !important;
+                                    justify-content: space-between !important;
                                 }
                                 @page {
                                     size: A4 portrait;
-                                    margin: 8mm;
+                                    margin: 4mm;
                                 }
                                 @media print {
-                                    body {
-                                        padding: 0;
+                                    html, body {
+                                        height: 100vh !important;
+                                        overflow: hidden !important;
                                     }
                                 }
                             </style>
@@ -1469,12 +1532,12 @@
 
             displayPhotos.forEach((imgUrl, index) => {
                 const imgBox = document.createElement('div');
-                imgBox.className = "bg-slate-100 border border-slate-300 rounded-lg overflow-hidden p-1.5 flex flex-col items-center";
+                imgBox.className = "bg-slate-100 border border-slate-300 rounded overflow-hidden p-1 flex flex-col items-center";
                 imgBox.innerHTML = `
-                    <div class="w-full h-44 overflow-hidden rounded bg-slate-200">
+                    <div class="w-full h-32 overflow-hidden rounded bg-slate-200">
                         <img src="${imgUrl}" class="w-full h-full object-cover">
                     </div>
-                    <span class="text-[10px] text-slate-500 font-medium mt-1">Foto Aktiviti ${index + 1}: Murid Menggunakan Tablet</span>
+                    <span class="text-[9px] text-slate-500 font-medium mt-0.5">Foto Aktiviti ${index + 1}: Murid Menggunakan Tablet</span>
                 `;
                 photosContainer.appendChild(imgBox);
             });
@@ -1489,8 +1552,8 @@
             if (img2) { img2.src = ''; img2.classList.add('hidden'); }
             
             const ph1 = document.getElementById('img-prev-1-ph');
-            const ph2 = document.getElementById('img-prev-2-ph');
             if (ph1) ph1.classList.remove('hidden');
+            const ph2 = document.getElementById('img-prev-2-ph');
             if (ph2) ph2.classList.remove('hidden');
 
             const now = new Date();
@@ -1579,6 +1642,20 @@
                 window.pdpcLogs.unshift(newLog);
                 window.saveDataLocal('pdpc_logs', window.pdpcLogs);
 
+                // Push to Google Sheets via Apps Script Web App API
+                if (window.GAS_WEB_APP_URL) {
+                    try {
+                        fetch(window.GAS_WEB_APP_URL, {
+                            method: 'POST',
+                            mode: 'no-cors',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(newLog)
+                        }).catch(e => console.warn("Google Apps Script send error:", e));
+                    } catch (e) {
+                        console.warn("GAS POST fallback:", e);
+                    }
+                }
+
                 if (window.isFirebaseActive && window.db) {
                     try {
                         const appId = typeof __app_id !== 'undefined' ? __app_id : 'tablet-pdpc-app';
@@ -1591,7 +1668,7 @@
 
                 closeNewLogModal();
                 window.refreshUI();
-                showNotification('Rekod PdPc baharu berjaya disimpan.');
+                showNotification('Rekod PdPc baharu berjaya disimpan ke Google Sheet & Sistem.');
                 viewReportForLog(newLog.id);
             } catch (err) {
                 console.error("Error saving log:", err);
